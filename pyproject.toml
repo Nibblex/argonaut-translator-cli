@@ -30,6 +30,9 @@ dependencies = [
     "pymupdf",
 ]
 
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov", "pytest-qt"]
+
 [project.urls]
 Homepage = "https://github.com/Nibblex/Argonaut"
 Issues = "https://github.com/Nibblex/Argonaut/issues"
@@ -42,3 +45,15 @@ version = { attr = "argonaut.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=argonaut --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["argonaut"]
+# pure app bootstrap: running it starts the Qt event loop
+omit = ["*/argonaut/__main__.py"]
+
+[tool.coverage.report]
+exclude_also = ["if __name__ == .__main__.:"]

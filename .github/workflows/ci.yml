@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install system Qt libraries
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libegl1 libxkbcommon0 libdbus-1-3
+
+      - name: Install the package with test dependencies
+        run: pip install -e .[test]
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest --cov-report=xml --cov-report=term
+
+      - name: Generate coverage badge
+        run: |
+          pip install "genbadge[coverage]"
+          genbadge coverage -i coverage.xml -o coverage.svg
+
+      - name: Publish coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cp coverage.svg /tmp/coverage.svg
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan badges
+          git rm -rf --quiet .
+          cp /tmp/coverage.svg coverage.svg
+          git add coverage.svg
+          git commit -m "Update coverage badge"
+          git push -f origin badges
