@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argonaut-translator"
+dynamic = ["version"]
+description = "Minimalist offline document translator (PyQt5 + Argos Translate)"
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Sergio Rodríguez", email = "srodriguez3441@gmail.com" },
+]
+requires-python = ">=3.9"
+keywords = ["translation", "documents", "offline", "argos-translate", "pdf"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "PyQt5",
+    "argostranslate",
+    "argos-translate-files",
+    "langdetect",
+    "pymupdf",
+]
+
+[project.urls]
+Homepage = "https://github.com/Nibblex/Argonaut"
+Issues = "https://github.com/Nibblex/Argonaut/issues"
+
+[project.scripts]
+argonaut = "argonaut.main:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "argonaut.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
