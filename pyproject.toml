@@ -24,8 +24,8 @@ classifiers = [
 ]
 dependencies = [
     "PyQt5",
-    "argostranslate",
-    "argos-translate-files",
+    "argos-translate-lt",
+    "argos-translate-files>=1.4.4",
     "langdetect",
     "pymupdf",
 ]
