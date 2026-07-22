@@ -1,3 +1,3 @@
 """Argonaut: minimalist offline document translator."""
 
-__version__ = "1.0.4"
+__version__ = "1.1.0"
