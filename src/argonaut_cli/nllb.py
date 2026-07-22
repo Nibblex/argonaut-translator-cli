@@ -125,8 +125,9 @@ def remove_model(path=None):
 class NllbEngine:
     """Shared CTranslate2 translator, loaded lazily on first use."""
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, threads=None):
         self.path = path or model_dir()
+        self.threads = threads
         self._translator = None
         self._sp = None
 
@@ -136,7 +137,9 @@ class NllbEngine:
             import sentencepiece
 
             self._translator = ctranslate2.Translator(
-                self.path, device="cpu", intra_threads=os.cpu_count() or 4
+                self.path,
+                device="cpu",
+                intra_threads=self.threads or os.cpu_count() or 4,
             )
             self._sp = sentencepiece.SentencePieceProcessor(
                 os.path.join(self.path, "sentencepiece.bpe.model")
@@ -210,10 +213,10 @@ class NllbLanguage:
         return NllbTranslation(self.engine, self, to)
 
 
-def get_installed_languages(path=None):
+def get_installed_languages(path=None, threads=None):
     """Same entry point shape as argostranslate.translate: every language
     pair is available, all sharing one lazily-loaded engine."""
-    engine = NllbEngine(path)
+    engine = NllbEngine(path, threads)
     return [
         NllbLanguage(engine, code, name, flores)
         for code, name, flores in LANGUAGES

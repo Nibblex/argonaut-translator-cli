@@ -26,8 +26,9 @@ def test_common_languages_present():
 
 
 def test_get_installed_languages_share_one_engine():
-    languages = nllb.get_installed_languages("/nonexistent")
+    languages = nllb.get_installed_languages("/nonexistent", threads=2)
     assert len({id(lang.engine) for lang in languages}) == 1
+    assert languages[0].engine.threads == 2
     spanish = next(lang for lang in languages if lang.code == "es")
     assert str(spanish) == "Spanish"
 
@@ -95,6 +96,7 @@ def test_engine_builds_nllb_token_layout(monkeypatch, tmp_path):
     class FakeTranslator:
         def __init__(self, path, **kwargs):
             captured["model_path"] = path
+            captured["intra_threads"] = kwargs.get("intra_threads")
 
         def translate_batch(self, source, target_prefix=None, **kwargs):
             captured["source"] = source
@@ -120,9 +122,10 @@ def test_engine_builds_nllb_token_layout(monkeypatch, tmp_path):
         types.SimpleNamespace(SentencePieceProcessor=FakeProcessor),
     )
 
-    engine = nllb.NllbEngine(str(tmp_path))
+    engine = nllb.NllbEngine(str(tmp_path), threads=3)
     out = engine.translate_batch(["hello world"], "eng_Latn", "spa_Latn")
 
+    assert captured["intra_threads"] == 3
     assert captured["source"] == [["eng_Latn", "hello", "world", "</s>"]]
     assert captured["target_prefix"] == [["spa_Latn"]]
     assert out == ["hola"]  # the language token is stripped before decoding
