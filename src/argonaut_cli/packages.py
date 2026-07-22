@@ -19,8 +19,24 @@ def pair(pkg):
     return (pkg.from_code, pkg.to_code)
 
 
-def installed_pairs():
-    return {pair(pkg) for pkg in argos_package.get_installed_packages()}
+def installed_versions():
+    """Version of the installed package for each (from, to) language pair."""
+    return {
+        pair(pkg): pkg.package_version
+        for pkg in argos_package.get_installed_packages()
+    }
+
+
+def version_tuple(version):
+    """Comparable form of a version string like "1.3"; non-numeric parts
+    count as zero so a malformed version never sorts above a real one."""
+    return tuple(
+        int(part) if part.isdigit() else 0 for part in str(version).split(".")
+    )
+
+
+def is_newer(candidate, current):
+    return version_tuple(candidate) > version_tuple(current)
 
 
 def get_available():
@@ -114,9 +130,13 @@ def uninstall(target_pair):
 
 def install(pkg, on_progress=None, is_cancelled=None):
     """Downloads and installs a package, removing the downloaded archive.
-    install_from_path clears argostranslate's language cache itself."""
+    An older version of the same pair is uninstalled first: Argos extracts
+    into a directory named after the pair only, so upgrading in place would
+    leave the previous version's files behind. install_from_path clears
+    argostranslate's language cache itself."""
     path = download(pkg, on_progress, is_cancelled)
     try:
+        uninstall(pair(pkg))  # no-op on a fresh install
         argos_package.install_from_path(path)
     finally:
         os.remove(path)

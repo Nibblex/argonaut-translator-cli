@@ -23,6 +23,19 @@ def fake_pkg(tmp_path=None, from_code="en", to_code="es", from_name="English",
     )
 
 
+@pytest.fixture(autouse=True)
+def no_real_packages(monkeypatch):
+    """install() uninstalls the previous version of the pair, so an
+    unpatched lookup here would delete real packages from the machine
+    running the tests. Tests that need one override this."""
+    monkeypatch.setattr(packages.argos_package, "get_installed_packages", lambda: [])
+    monkeypatch.setattr(
+        packages.argos_package,
+        "uninstall",
+        lambda pkg: pytest.fail("uninstalled a real package"),
+    )
+
+
 @pytest.fixture
 def downloads_dir(tmp_path, monkeypatch):
     target = tmp_path / "downloads"
@@ -30,13 +43,23 @@ def downloads_dir(tmp_path, monkeypatch):
     return target
 
 
-def test_pair_and_installed_pairs(monkeypatch):
+def test_pair_and_installed_versions(monkeypatch):
     pkg = fake_pkg()
+    pkg.package_version = "1.3"
     assert packages.pair(pkg) == ("en", "es")
     monkeypatch.setattr(
         packages.argos_package, "get_installed_packages", lambda: [pkg]
     )
-    assert packages.installed_pairs() == {("en", "es")}
+    assert packages.installed_versions() == {("en", "es"): "1.3"}
+
+
+def test_version_comparison():
+    assert packages.is_newer("1.3", "1.0")
+    assert packages.is_newer("1.10", "1.9")  # compared as numbers, not text
+    assert packages.is_newer("2.0", "1.9.9")
+    assert not packages.is_newer("1.3", "1.3")
+    assert not packages.is_newer("1.0", "1.3")
+    assert not packages.is_newer("", "1.0")  # unparsable never wins
 
 
 def test_download_reports_progress(tmp_path, downloads_dir):
@@ -112,6 +135,28 @@ def test_install_downloads_installs_and_cleans_up(tmp_path, downloads_dir, monke
     packages.install(pkg)
     assert len(installed) == 1
     assert not any(downloads_dir.iterdir())  # the archive is removed
+
+
+def test_install_replaces_an_older_version(tmp_path, downloads_dir, monkeypatch):
+    """Argos extracts into a directory named after the pair, so upgrading
+    must drop the old version instead of unpacking on top of it."""
+    pkg = fake_pkg(tmp_path)
+    old = fake_pkg()  # same pair, already installed
+    calls = []
+    monkeypatch.setattr(
+        packages.argos_package, "get_installed_packages", lambda: [old]
+    )
+    monkeypatch.setattr(
+        packages.argos_package, "uninstall", lambda p: calls.append(("uninstall", p))
+    )
+    monkeypatch.setattr(
+        packages.argos_package,
+        "install_from_path",
+        lambda path: calls.append(("install", path)),
+    )
+    packages.install(pkg)
+    assert [step for step, _ in calls] == ["uninstall", "install"]
+    assert calls[0][1] is old
 
 
 def test_install_removes_archive_on_failure(tmp_path, downloads_dir, monkeypatch):
