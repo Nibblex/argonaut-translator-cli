@@ -49,6 +49,35 @@ def reset_language():
 
 
 @pytest.fixture(autouse=True)
+def no_blocking_dialogs(monkeypatch):
+    """Modal dialogs wait for a click that never comes, so an unpatched one
+    hangs the run forever (and with it CI). Fail loudly instead; tests that
+    expect a dialog patch these themselves, overriding this guard."""
+    from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox
+
+    def blocked(name):
+        def guard(*args, **kwargs):
+            raise AssertionError(f"unpatched modal dialog: {name}")
+
+        return guard
+
+    for cls, names in (
+        (QMessageBox, ["question", "warning", "information", "critical", "about"]),
+        (
+            QFileDialog,
+            ["getOpenFileName", "getOpenFileNames", "getSaveFileName",
+             "getExistingDirectory"],
+        ),
+        (QDialog, ["exec_"]),
+    ):
+        for name in names:
+            method = blocked(f"{cls.__name__}.{name}")
+            monkeypatch.setattr(
+                cls, name, method if cls is QDialog else staticmethod(method)
+            )
+
+
+@pytest.fixture(autouse=True)
 def clean_qsettings():
     """Each test starts with empty settings: closing a window persists its
     state (qtbot closes them on teardown), which would leak across tests."""
