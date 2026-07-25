@@ -5,6 +5,7 @@ from argonaut.translation import (
     SUPPORTED_EXTS,
     CancelledError,
     ProgressTranslation,
+    TranslationCache,
     detect_language,
 )
 from tests.conftest import FakeLanguage, FakeTranslation
@@ -37,6 +38,48 @@ def test_repeated_text_is_cached_but_still_counted():
     assert proxy.translate("hello") == "HELLO"
     assert inner.calls == 1
     assert progress == [1, 2]
+
+
+def test_shared_cache_reuses_translations_across_proxies():
+    # a cache passed to several proxies stands in for a whole batch: the same
+    # text translates once no matter how many files (proxies) contain it
+    cache = TranslationCache()
+    en, es = FakeLanguage("en", "English"), FakeLanguage("es", "Spanish")
+    inner = FakeTranslation(en, es)
+    first = ProgressTranslation(inner, [].append, lambda: False, cache=cache)
+    second = ProgressTranslation(inner, [].append, lambda: False, cache=cache)
+
+    assert first.translate("hello") == "HELLO"
+    assert second.translate("hello") == "HELLO"  # served from the shared cache
+    assert inner.calls == 1
+    assert cache.reused == 1  # the second proxy's hit is counted for the batch
+    assert second.reused == 1 and first.reused == 0  # per-file breakdown
+
+
+def test_shared_cache_keeps_language_pairs_apart():
+    # the same text detected in different source languages must not collide:
+    # each pair keeps its own entry even in one shared cache
+    cache = TranslationCache()
+    es, en = FakeLanguage("es", "Spanish"), FakeLanguage("en", "English")
+    it = FakeLanguage("it", "Italian")
+    es_en = ProgressTranslation(
+        FakeTranslation(es, en), [].append, lambda: False, cache=cache
+    )
+    it_en = ProgressTranslation(
+        FakeTranslation(it, en), [].append, lambda: False, cache=cache
+    )
+
+    es_en.translate("ciao")
+    it_en.translate("ciao")
+    assert cache.hits == 0 and cache.misses == 2  # both were first sightings
+
+
+def test_translation_cache_counts_hits_and_misses():
+    cache = TranslationCache()
+    assert cache.lookup("k") == (None, False)  # miss on an empty cache
+    cache.store("k", "v")
+    assert cache.lookup("k") == ("v", True)  # now a hit
+    assert (cache.hits, cache.misses, cache.reused) == (1, 1, 1)
 
 
 def test_text_without_letters_is_passed_through():

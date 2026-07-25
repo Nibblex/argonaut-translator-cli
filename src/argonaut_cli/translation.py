@@ -45,28 +45,78 @@ def supported_extensions():
 SUPPORTED_EXTS = supported_extensions()
 
 
+class TranslationCache:
+    """A segment cache shared across a batch, tracking how much it is reused.
+
+    ``hits`` counts segments served without touching the engine, ``misses``
+    those translated for the first time; together they let the window show
+    how much a batch benefits from files sharing content."""
+
+    def __init__(self):
+        self._entries = {}
+        self.hits = 0
+        self.misses = 0
+
+    def lookup(self, key):
+        """Returns (value, found). A found key counts as a hit, a missing
+        one as a miss, so the caller need only translate on a miss."""
+        if key in self._entries:
+            self.hits += 1
+            return self._entries[key], True
+        self.misses += 1
+        return None, False
+
+    def store(self, key, value):
+        self._entries[key] = value
+
+    @property
+    def reused(self):
+        """Segments served from the cache instead of being retranslated."""
+        return self.hits
+
+
 class ProgressTranslation:
     """Wraps an ITranslation to report progress chunk by chunk, cache
-    repeated texts and abort mid-file."""
+    repeated texts and abort mid-file.
 
-    def __init__(self, inner, on_progress, is_cancelled):
+    Pass a shared ``cache`` (a :class:`TranslationCache`) to reuse
+    translations across a whole batch so a repeated paragraph translates
+    once no matter how many files contain it. Entries are namespaced by
+    language pair, so a file detected as a different source language never
+    picks up another pair's translation."""
+
+    def __init__(self, inner, on_progress, is_cancelled, cache=None):
         self._inner = inner
         self._on_progress = on_progress
         self._is_cancelled = is_cancelled
-        self._cache = {}
+        self._cache = TranslationCache() if cache is None else cache
+        self._prefix = self._language_pair()
         self._done = 0
+        self.reused = 0  # segments this file served from the cache
+
+    def _language_pair(self):
+        def code(lang):
+            return getattr(lang, "code", "") if lang is not None else ""
+
+        return (
+            code(getattr(self._inner, "from_lang", None)),
+            code(getattr(self._inner, "to_lang", None)),
+        )
 
     def translate(self, text):
         if self._is_cancelled():
             raise CancelledError()
-        result = self._cache.get(text)
-        if result is None:
+        key = (self._prefix, text)
+        result, found = self._cache.lookup(key)
+        if found:
+            self.reused += 1
+        else:
             # chunks with no letters (numbers, punctuation) are left as-is
             if any(c.isalpha() for c in text):
                 result = self._inner.translate(text)
             else:
                 result = text
-            self._cache[text] = result
+            self._cache.store(key, result)
         self._done += 1
         self._on_progress(self._done)
         return result
