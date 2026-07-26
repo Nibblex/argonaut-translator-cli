@@ -262,3 +262,74 @@ def test_translate_pdf_honours_cancellation(tmp_path):
     with pytest.raises(CancelledError):
         translator.translate_pdf()
     assert not (tmp_path / "out.pdf").exists()
+
+
+def test_save_subsets_fonts_before_writing(tmp_path, monkeypatch):
+    """insert_htmlbox embeds a copy of its font per paragraph; subsetting
+    collapses them, so the deduplicating save has far less to chew on."""
+    src = tmp_path / "doc.pdf"
+    out = tmp_path / "doc_es.pdf"
+    make_pdf(src)
+    calls = []
+    original = fitz.Document.subset_fonts
+    monkeypatch.setattr(
+        fitz.Document, "subset_fonts",
+        lambda self, *a, **k: calls.append(True) or original(self, *a, **k),
+    )
+
+    FastPdfTranslator(
+        pdf_path=str(src), output_path=str(out),
+        underlying_translation=FakeTranslation(),
+    ).translate_pdf()
+
+    assert calls == [True]
+    assert out.exists()
+    doc = fitz.open(str(out))
+    assert "HELLO WORLD" in doc.load_page(0).get_text()
+    doc.close()
+
+
+def test_a_font_that_cannot_be_subset_still_saves(tmp_path, monkeypatch):
+    """Subsetting is an optimisation: a font it chokes on must not cost the
+    user the translation that is already finished."""
+    src = tmp_path / "doc.pdf"
+    out = tmp_path / "doc_es.pdf"
+    make_pdf(src)
+    monkeypatch.setattr(
+        fitz.Document, "subset_fonts",
+        lambda self, *a, **k: (_ for _ in ()).throw(RuntimeError("bad font")),
+    )
+
+    FastPdfTranslator(
+        pdf_path=str(src), output_path=str(out),
+        underlying_translation=FakeTranslation(),
+    ).translate_pdf()
+
+    assert out.exists()
+    doc = fitz.open(str(out))
+    assert "HELLO WORLD" in doc.load_page(0).get_text()
+    doc.close()
+
+
+def test_saving_keeps_the_original_metadata(tmp_path):
+    """The base class rebuilt the document into a fresh one, which dropped
+    its metadata; the working document is saved directly instead."""
+    src = tmp_path / "doc.pdf"
+    out = tmp_path / "doc_es.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Hello world", fontsize=12)
+    doc.set_metadata({"title": "Original title", "author": "Someone"})
+    doc.save(str(src))
+    doc.close()
+
+    FastPdfTranslator(
+        pdf_path=str(src), output_path=str(out),
+        underlying_translation=FakeTranslation(),
+    ).translate_pdf()
+
+    saved = fitz.open(str(out))
+    metadata = saved.metadata
+    saved.close()
+    assert metadata["title"] == "Original title"
+    assert metadata["author"] == "Someone"

@@ -203,6 +203,25 @@ class FastPdfTranslator(PdfTranslator):
             for entry in self._cancellable(entries):
                 self._insert_styled_text_blocks(page, [entry], is_bold=is_bold)
 
+    def _save_translated_pdf(self):
+        """Writes the rebuilt document.
+
+        ``insert_htmlbox`` embeds a copy of its font on every call, so a
+        book ends up holding one near-identical copy per paragraph — a few
+        thousand of them. Subsetting collapses those first, which makes
+        both the deduplication below and the file itself smaller.
+
+        ``garbage=4`` stays: it is what removes the duplicate font objects,
+        and a lower level saves faster but grows the same 170 KB file past
+        100 MB. The base class copies the document into a fresh one before
+        saving, which costs the same and drops the original's metadata and
+        outline, so the working document is saved directly instead."""
+        try:
+            self.doc.subset_fonts()
+        except Exception:  # noqa: BLE001
+            pass  # an optimisation: a font it cannot subset must not fail the save
+        self.doc.save(self.output_path, garbage=4, deflate=True)
+
     @staticmethod
     def _insertion_rect(block):
         """Where the translation goes: the original box, widened a little for
