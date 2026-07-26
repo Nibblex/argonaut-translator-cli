@@ -53,6 +53,11 @@ version = { attr = "argonaut.__version__" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# the interface strings and the language names are data files read at
+# runtime, so the wheel has to carry them next to the modules
+[tool.setuptools.package-data]
+argonaut = ["locales/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=argonaut --cov-report=term-missing"
