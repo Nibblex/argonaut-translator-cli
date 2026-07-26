@@ -8,7 +8,7 @@ import urllib.request
 from argostranslate import package as argos_package
 from argostranslate import settings as argos_settings
 
-from argonaut.translation import CancelledError
+from argonaut.download import download_to
 
 # argos-net.com answers 403 Forbidden to urllib's default agent
 USER_AGENT = "ArgosTranslate"
@@ -57,11 +57,13 @@ def get_available():
     return packages
 
 
-def open_first_link(links):
+def open_first_link(links, method="GET"):
     """Opens the first reachable of a package's mirror links."""
     last_error = None
     for url in links:
-        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        request = urllib.request.Request(
+            url, method=method, headers={"User-Agent": USER_AGENT}
+        )
         try:
             return urllib.request.urlopen(request)
         except Exception as exc:  # noqa: BLE001
@@ -72,51 +74,24 @@ def open_first_link(links):
 def get_size(pkg):
     """Remote size in bytes of a package archive, from a HEAD request to
     the first reachable mirror; 0 if it cannot be determined."""
-    for url in pkg.links:
-        request = urllib.request.Request(
-            url, method="HEAD", headers={"User-Agent": USER_AGENT}
-        )
-        try:
-            response = urllib.request.urlopen(request)
-        except Exception:  # noqa: BLE001
-            continue
-        try:
-            return int(response.headers.get("Content-Length") or 0)
-        finally:
-            response.close()
-    return 0
+    try:
+        response = open_first_link(pkg.links, method="HEAD")
+    except Exception:  # noqa: BLE001
+        return 0
+    try:
+        return int(response.headers.get("Content-Length") or 0)
+    finally:
+        response.close()
 
 
 def download(pkg, on_progress=None, is_cancelled=None):
     """Downloads a package to Argos's downloads folder, reporting
     (done_bytes, total_bytes) after each chunk, and returns the file path.
     Cancelling or failing removes the partial file."""
-    on_progress = on_progress or (lambda done, total: None)
-    is_cancelled = is_cancelled or (lambda: False)
     filename = argos_package.argospm_package_name(pkg) + ".argosmodel"
     target = os.path.join(argos_settings.downloads_dir, filename)
     os.makedirs(argos_settings.downloads_dir, exist_ok=True)
-
-    response = open_first_link(pkg.links)
-    total = int(response.headers.get("Content-Length") or 0)
-    done = 0
-    try:
-        with open(target, "wb") as out:
-            while True:
-                if is_cancelled():
-                    raise CancelledError()
-                chunk = response.read(1024 * 256)
-                if not chunk:
-                    break
-                out.write(chunk)
-                done += len(chunk)
-                on_progress(done, total)
-    except BaseException:
-        if os.path.exists(target):
-            os.remove(target)
-        raise
-    finally:
-        response.close()
+    download_to(open_first_link(pkg.links), target, on_progress, is_cancelled)
     return target
 
 

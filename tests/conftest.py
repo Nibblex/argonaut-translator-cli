@@ -1,11 +1,16 @@
-"""Shared test setup: run Qt headless and keep QSettings away from the
-user's real configuration. Both must happen before any Qt import."""
+"""Shared test setup: run Qt headless and keep QSettings, the translation
+cache and the downloaded model away from the user's real files. All of it
+must happen before any Qt import."""
 
 import os
 import tempfile
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
-os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="argonaut-tests-")
+_sandbox = tempfile.mkdtemp(prefix="argonaut-tests-")
+os.environ["XDG_CONFIG_HOME"] = _sandbox
+# without this the cache DB under ~/.local/share is read *and written* by the
+# suite, so tests see whatever the developer happens to have translated
+os.environ["XDG_DATA_HOME"] = _sandbox
 
 import pytest
 
@@ -38,6 +43,28 @@ class FakeTranslation:
     def translate(self, text):
         self.calls += 1
         return text.upper()
+
+
+class FakeBatchTranslation(FakeTranslation):
+    """FakeTranslation plus the translate_many a batching engine (NLLB)
+    offers, recording the texts of each batched call."""
+
+    def __init__(self, from_lang=None, to_lang=None):
+        super().__init__(from_lang, to_lang)
+        self.batches = []
+
+    def translate_many(self, texts):
+        self.calls += len(texts)
+        self.batches.append(list(texts))
+        return [text.upper() for text in texts]
+
+
+@pytest.fixture(autouse=True)
+def isolated_data_dir(tmp_path, monkeypatch):
+    """Each test gets its own data directory. The translation cache is a
+    file under it now, so without this a text translated by one test would
+    still be cached for the next one."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
 
 
 @pytest.fixture(autouse=True)

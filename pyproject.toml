@@ -12,7 +12,8 @@ license-files = ["LICENSE"]
 authors = [
     { name = "Sergio Rodríguez", email = "srodriguez3441@gmail.com" },
 ]
-requires-python = ">=3.9"
+# current pymupdf wheels need 3.10; CI tests every version listed below
+requires-python = ">=3.10"
 keywords = ["translation", "documents", "offline", "argos-translate", "pdf"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -20,6 +21,11 @@ classifiers = [
     "Intended Audience :: End Users/Desktop",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Text Processing :: Linguistic",
 ]
 dependencies = [

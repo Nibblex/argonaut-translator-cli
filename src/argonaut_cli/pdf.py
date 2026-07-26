@@ -4,30 +4,11 @@ PdfTranslator (whole paragraphs, progress and cancellation)."""
 import pymupdf as fitz
 from argostranslatefiles.formats.pdf import PdfTranslator
 
-from argonaut.translation import CancelledError
+from argonaut.translation import check_cancelled
 
 
 def is_horizontal(line):
     return tuple(line.get("dir", (1, 0))) == (1.0, 0.0)
-
-
-def count_pdf_paragraphs(file_path):
-    """Counts the paragraphs that will be translated in a PDF (blocks with
-    at least one horizontal text line), so a real percentage can be shown."""
-    try:
-        doc = fitz.open(file_path)
-        count = 0
-        for page_num in range(doc.page_count):
-            for block in doc.load_page(page_num).get_text("dict")["blocks"]:
-                count += any(
-                    is_horizontal(line)
-                    and any(s.get("text", "").strip() for s in line["spans"])
-                    for line in block.get("lines", [])
-                )
-        doc.close()
-        return count
-    except Exception:  # noqa: BLE001
-        return 0
 
 
 class FastPdfTranslator(PdfTranslator):
@@ -42,21 +23,63 @@ class FastPdfTranslator(PdfTranslator):
         pdf_path,
         output_path,
         underlying_translation,
+        on_count_ready=None,
+        on_read=None,
+        on_translated_page=None,
         on_page=None,
         on_save=None,
         is_cancelled=None,
     ):
         super().__init__(pdf_path, output_path, underlying_translation)
+        self._on_count_ready = on_count_ready or (lambda n: None)
+        self._on_read = on_read or (lambda done, total: None)
+        self._on_translated_page = on_translated_page or (lambda done, total: None)
         self._on_page = on_page or (lambda done, total: None)
         self._on_save = on_save or (lambda: None)
         self._is_cancelled = is_cancelled or (lambda: False)
 
     def translate_pdf(self):
-        self._extract_text_from_pages()
-        self._translate_pages_data()
-        self._apply_translations_to_pdf()
-        self._on_save()
-        self._save_translated_pdf()
+        phases = (
+            self._extract_text_from_pages,
+            self._report_count,
+            self._translate_pages_data,
+            self._apply_translations_to_pdf,
+            self._on_save,
+            self._save_translated_pdf,
+        )
+        try:
+            for phase in phases:
+                self._abort_if_cancelled()  # every phase is a cancel point
+                phase()
+        finally:
+            # the base class only closes the document on the success path, so
+            # a cancelled PDF would hold its pages until the process ends
+            if not self.doc.is_closed:
+                self.doc.close()
+            self.pages_data = []
+
+    def _abort_if_cancelled(self):
+        check_cancelled(self._is_cancelled)
+
+    def _cancellable(self, items):
+        """Yields ``items``, giving cancellation a chance between each one."""
+        for item in items:
+            self._abort_if_cancelled()
+            yield item
+
+    def _extract_text_from_pages(self):
+        # the base class reads every page in silence; on a long book that is
+        # the better part of a minute in which the window has nothing to show
+        total = self.doc.page_count
+        for page_num in range(total):
+            self._abort_if_cancelled()
+            self._extract_text_with_pymupdf(page_num)
+            self._on_read(page_num + 1, total)
+
+    def _report_count(self):
+        # the count comes from the already-extracted pages_data, so the PDF
+        # is never parsed a second time just to fill the progress bar
+        self._on_count_ready(sum(len(page) for page in self.pages_data))
 
     def _extract_text_with_pymupdf(self, page_num: int):
         """Unlike the base class, extracts whole paragraphs (blocks) instead
@@ -67,7 +90,7 @@ class FastPdfTranslator(PdfTranslator):
             self.pages_data.append([])
 
         page = self.doc.load_page(page_num)
-        for block in page.get_text("dict")["blocks"]:
+        for block in self._cancellable(page.get_text("dict")["blocks"]):
             lines = []
             rect = None
             sizes = {}
@@ -123,17 +146,34 @@ class FastPdfTranslator(PdfTranslator):
         return text
 
     def _translate_pages_data(self):
-        # without the base class's "except Exception", which silently turned
-        # any error (including cancellation) into an untranslated PDF
-        for page_blocks in self.pages_data:
-            for block in page_blocks:
-                block[2] = self.underlying_translation.translate(block[0])
+        # process one page at a time: all paragraphs on the page are batched
+        # into a single engine call (preserving the speedup) while progress
+        # is reported once per page so the bar visibly advances
+        total = len(self.pages_data)
+        for page_index, page_blocks in enumerate(self._cancellable(self.pages_data)):
+            # the page number is reported even for empty pages: on a big book
+            # the percentage barely moves, and it is the only sign of life
+            self._on_translated_page(page_index + 1, total)
+            if not page_blocks:
+                continue
+            texts = [block[0] for block in page_blocks]
+            # a plain ITranslation (no batching) is still accepted, so the
+            # class stays usable outside the worker
+            translate_many = getattr(
+                self.underlying_translation, "translate_many", None
+            )
+            if translate_many is not None:
+                translated = translate_many(texts)
+            else:
+                translated = [
+                    self.underlying_translation.translate(text) for text in texts
+                ]
+            for block, result in zip(page_blocks, translated):
+                block[2] = result
 
     def _apply_translations_to_pdf(self):
         total = len(self.pages_data)
-        for page_index, blocks in enumerate(self.pages_data):
-            if self._is_cancelled():
-                raise CancelledError()
+        for page_index, blocks in enumerate(self._cancellable(self.pages_data)):
             if blocks:
                 self._apply_page(page_index, blocks)
             self._on_page(page_index + 1, total)
@@ -141,35 +181,42 @@ class FastPdfTranslator(PdfTranslator):
     def _apply_page(self, page_index, blocks):
         page = self.doc.load_page(page_index)
 
-        entries = []
-        for block in blocks:
-            translated_text = block[2] if block[2] is not None else block[0]
-            len_ratio = min(
-                1.05, max(1.01, len(translated_text) / max(1, len(block[0])))
-            )
-            x0, y0, x1, y1 = block[1]
-            x1 += (len_ratio - 1) * (x1 - x0)
-            vertical_margin = min((y1 - y0) * 0.1, 3)
-            y0 += vertical_margin
-            y1 -= vertical_margin
-            if y1 - y0 < 10:
-                y_center = (block[1][1] + block[1][3]) / 2
-                y0, y1 = y_center - 5, y_center + 5
-            entries.append((block, (x0, y0, x1, y1)))
+        rects = []  # every paragraph, in page order, for the redaction pass
+        by_weight = {False: [], True: []}  # and grouped for the insert passes
+        for block in self._cancellable(blocks):
+            coords = self._insertion_rect(block)
+            rects.append(coords)
+            by_weight[bool(block[6])].append((block, coords))
 
         # a single redaction pass per page
-        for _block, coords in entries:
+        for coords in self._cancellable(rects):
             page.add_redact_annot(fitz.Rect(*coords))
-        try:
+        self._abort_if_cancelled()  # outside the try: CancelledError is an
+        try:                        # Exception, and would be swallowed below
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
         except Exception:  # noqa: BLE001
-            for _block, coords in entries:
+            for coords in self._cancellable(rects):
                 page.draw_rect(fitz.Rect(*coords), color=(1, 1, 1), fill=(1, 1, 1))
 
-        normal_blocks = []
-        bold_blocks = []
-        for block, coords in entries:
-            is_bold = len(block) > 6 and block[6]
-            (bold_blocks if is_bold else normal_blocks).append((block, coords))
-        self._insert_styled_text_blocks(page, normal_blocks, is_bold=False)
-        self._insert_styled_text_blocks(page, bold_blocks, is_bold=True)
+        # one entry at a time, so cancellation can interrupt a long page
+        for is_bold, entries in by_weight.items():
+            for entry in self._cancellable(entries):
+                self._insert_styled_text_blocks(page, [entry], is_bold=is_bold)
+
+    @staticmethod
+    def _insertion_rect(block):
+        """Where the translation goes: the original box, widened a little for
+        the text that grew and given a minimum usable height."""
+        translated_text = block[2] if block[2] is not None else block[0]
+        len_ratio = min(
+            1.05, max(1.01, len(translated_text) / max(1, len(block[0])))
+        )
+        x0, y0, x1, y1 = block[1]
+        x1 += (len_ratio - 1) * (x1 - x0)
+        vertical_margin = min((y1 - y0) * 0.1, 3)
+        y0 += vertical_margin
+        y1 -= vertical_margin
+        if y1 - y0 < 10:
+            y_center = (block[1][1] + block[1][3]) / 2
+            y0, y1 = y_center - 5, y_center + 5
+        return x0, y0, x1, y1

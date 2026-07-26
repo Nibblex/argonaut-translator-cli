@@ -26,11 +26,24 @@ def test_common_languages_present():
 
 
 def test_get_installed_languages_share_one_engine():
-    languages = nllb.get_installed_languages("/nonexistent", threads=2)
+    languages = nllb.get_installed_languages("/nonexistent", threads=2, beam_size=1)
     assert len({id(lang.engine) for lang in languages}) == 1
     assert languages[0].engine.threads == 2
+    assert languages[0].engine.beam_size == 1
     spanish = next(lang for lang in languages if lang.code == "es")
     assert str(spanish) == "Spanish"
+
+
+def test_thread_split_makes_workers_of_about_four_threads():
+    """Benchmarked: below 8 threads a single worker wins, so small budgets
+    are never split; larger ones become up to four ~4-thread workers."""
+    assert nllb.NllbEngine.thread_split(1) == (1, 1)
+    assert nllb.NllbEngine.thread_split(4) == (1, 4)
+    assert nllb.NllbEngine.thread_split(6) == (1, 6)
+    assert nllb.NllbEngine.thread_split(8) == (2, 4)
+    assert nllb.NllbEngine.thread_split(12) == (3, 4)
+    assert nllb.NllbEngine.thread_split(16) == (4, 4)
+    assert nllb.NllbEngine.thread_split(32) == (4, 8)
 
 
 # --- sentence splitting ---
@@ -96,11 +109,13 @@ def test_engine_builds_nllb_token_layout(monkeypatch, tmp_path):
     class FakeTranslator:
         def __init__(self, path, **kwargs):
             captured["model_path"] = path
+            captured["inter_threads"] = kwargs.get("inter_threads")
             captured["intra_threads"] = kwargs.get("intra_threads")
 
         def translate_batch(self, source, target_prefix=None, **kwargs):
             captured["source"] = source
             captured["target_prefix"] = target_prefix
+            captured["beam_size"] = kwargs.get("beam_size")
             return [FakeResult([prefix[0], "▁hola"]) for prefix in target_prefix]
 
     class FakeProcessor:
@@ -125,10 +140,17 @@ def test_engine_builds_nllb_token_layout(monkeypatch, tmp_path):
     engine = nllb.NllbEngine(str(tmp_path), threads=3)
     out = engine.translate_batch(["hello world"], "eng_Latn", "spa_Latn")
 
-    assert captured["intra_threads"] == 3
+    assert (captured["inter_threads"], captured["intra_threads"]) == (1, 3)
+    assert captured["beam_size"] == nllb.NllbEngine.DEFAULT_BEAM
     assert captured["source"] == [["eng_Latn", "hello", "world", "</s>"]]
     assert captured["target_prefix"] == [["spa_Latn"]]
     assert out == ["hola"]  # the language token is stripped before decoding
+
+    # a bigger budget is split into workers, and a fast engine goes greedy
+    fast = nllb.NllbEngine(str(tmp_path), threads=8, beam_size=1)
+    fast.translate_batch(["hello world"], "eng_Latn", "spa_Latn")
+    assert (captured["inter_threads"], captured["intra_threads"]) == (2, 4)
+    assert captured["beam_size"] == 1
 
 
 # --- model installation and download ---

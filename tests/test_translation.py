@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from argonaut.translation import (
@@ -8,7 +10,7 @@ from argonaut.translation import (
     TranslationCache,
     detect_language,
 )
-from tests.conftest import FakeLanguage, FakeTranslation
+from tests.conftest import FakeBatchTranslation, FakeLanguage, FakeTranslation
 
 ENGLISH_TEXT = (
     "The quick brown fox jumps over the lazy dog. "
@@ -74,12 +76,132 @@ def test_shared_cache_keeps_language_pairs_apart():
     assert cache.hits == 0 and cache.misses == 2  # both were first sightings
 
 
+def test_shared_cache_keeps_model_versions_apart():
+    # the same pair translated by two versions of a model must not share
+    # entries: the old model's output would otherwise outlive the upgrade
+    cache = TranslationCache()
+    en, es = FakeLanguage("en", "English"), FakeLanguage("es", "Spanish")
+    old = ProgressTranslation(
+        FakeTranslation(en, es), [].append, lambda: False,
+        cache=cache, engine_id="argos", engine_version="1.0",
+    )
+    new = ProgressTranslation(
+        FakeTranslation(en, es), [].append, lambda: False,
+        cache=cache, engine_id="argos", engine_version="1.9",
+    )
+
+    old.translate("hello")
+    new.translate("hello")
+    assert cache.hits == 0 and cache.misses == 2  # no cross-version reuse
+
+
 def test_translation_cache_counts_hits_and_misses():
     cache = TranslationCache()
     assert cache.lookup("k") == (None, False)  # miss on an empty cache
     cache.store("k", "v")
     assert cache.lookup("k") == ("v", True)  # now a hit
     assert (cache.hits, cache.misses, cache.reused) == (1, 1, 1)
+
+
+def test_closing_a_cache_releases_the_database_but_keeps_the_counters(tmp_path):
+    """A batch holds every segment it translated; runs that never let go of
+    them (a cancelled one included) would keep whole books in memory."""
+    db = str(tmp_path / "cache.db")
+    cache = TranslationCache(db, ttl_days=0)
+    cache.store("k", "v")
+    assert cache.lookup("k") == ("v", True)
+
+    cache.close()
+    assert cache.reused == 1  # the window still reports what the run reused
+    assert cache.lookup("k") == (None, False)  # released, but still usable
+
+    reopened = TranslationCache(db, ttl_days=0)
+    assert reopened.lookup("k") == ("v", True)  # what it stored survives
+    reopened.close()
+
+
+def test_batching_engine_receives_only_the_misses_in_one_call():
+    """An engine with translate_many (NLLB) gets the cache misses batched
+    into a single call instead of one call per text."""
+    inner = FakeBatchTranslation()
+    progress = []
+    proxy = ProgressTranslation(inner, progress.append, lambda: False)
+    proxy.translate("hello")  # cached from now on
+
+    assert proxy.translate_many(["hello", "world", "again"]) == [
+        "HELLO", "WORLD", "AGAIN"
+    ]
+    assert inner.batches == [["hello"], ["world", "again"]]
+    assert progress == [1, 4]
+
+
+def test_repeated_texts_in_one_call_reach_the_engine_once():
+    """A text repeated within a single call (headers, footers) misses the
+    cache at every position, but the engine translates it only once."""
+    inner = FakeBatchTranslation()
+    proxy = ProgressTranslation(inner, [].append, lambda: False)
+
+    assert proxy.translate_many(["same", "other", "same"]) == [
+        "SAME", "OTHER", "SAME"
+    ]
+    assert inner.batches == [["same", "other"]]
+
+
+def test_database_writes_are_committed_in_groups(tmp_path):
+    """Segments are committed a group at a time — a commit per segment costs
+    a WAL write each, and a crash only loses the last, retranslatable, group."""
+    db = str(tmp_path / "cache.db")
+    cache = TranslationCache(db)
+    for n in range(TranslationCache.COMMIT_EVERY):
+        cache.store(f"k{n}", "v")
+
+    other = sqlite3.connect(db)  # a write still waiting would be invisible
+    count = other.execute("SELECT COUNT(*) FROM cache").fetchone()[0]
+    other.close()
+    cache.close()
+    assert count == TranslationCache.COMMIT_EVERY
+
+
+def test_purge_db_deletes_every_entry_and_reports_the_count(tmp_path):
+    db = str(tmp_path / "cache.db")
+    cache = TranslationCache(db)
+    cache.store("k1", "v1")
+    cache.store("k2", "v2")
+    cache.close()
+
+    assert TranslationCache.purge_db(db) == 2
+    assert TranslationCache.db_info(db)[0] == 0
+    reopened = TranslationCache(db)
+    assert reopened.lookup("k1") == (None, False)
+    reopened.close()
+
+
+def test_unopenable_db_falls_back_to_memory(tmp_path):
+    in_the_way = tmp_path / "not-a-dir"
+    in_the_way.write_text("")  # a file where the DB's directory should go
+    cache = TranslationCache(str(in_the_way / "cache.db"))
+    cache.store("k", "v")
+    assert cache.lookup("k") == ("v", True)  # in-memory keeps working
+    cache.close()
+
+
+def test_open_migrates_a_cache_without_timestamps(tmp_path):
+    """A DB created before the TTL column must gain it on open, with its
+    rows stamped as fresh so they don't all expire on the first prune."""
+    db = str(tmp_path / "cache.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE cache (key_hash TEXT PRIMARY KEY, translation TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO cache VALUES (?, ?)", (TranslationCache._hash("k"), "v")
+    )
+    conn.commit()
+    conn.close()
+
+    cache = TranslationCache(db, ttl_days=30)  # the prune runs on open
+    assert cache.lookup("k") == ("v", True)  # migrated rows survive it
+    cache.close()
 
 
 def test_text_without_letters_is_passed_through():
@@ -92,6 +214,27 @@ def test_cancellation_raises():
     _, _, proxy = make_proxy(cancelled=True)
     with pytest.raises(CancelledError):
         proxy.translate("hello")
+
+
+def test_cancelling_stops_between_texts_of_a_batch():
+    """Engines without translate_many are called text by text, so cancelling
+    must not wait for the rest of the batch (a whole PDF page)."""
+    inner = FakeTranslation()
+    assert not hasattr(inner, "translate_many")
+    cancelled = []
+    proxy = ProgressTranslation(
+        inner, lambda done: None, lambda: bool(cancelled)
+    )
+    original = inner.translate
+
+    def translate(text):
+        cancelled.append(True)  # cancel arrives while the first text is in flight
+        return original(text)
+
+    inner.translate = translate
+    with pytest.raises(CancelledError):
+        proxy.translate_many(["one", "two", "three"])
+    assert inner.calls == 1  # the other two were never translated
 
 
 def test_unknown_attributes_delegate_to_inner():
@@ -127,3 +270,15 @@ def test_detect_language_returns_none_for_empty_file(tmp_path):
     doc = tmp_path / "doc.txt"
     doc.write_text("   \n  ")
     assert detect_language(str(doc), [FakeLanguage("en", "English")]) is None
+
+
+def test_detect_language_returns_none_for_featureless_text(tmp_path):
+    doc = tmp_path / "doc.txt"
+    doc.write_text("1234567890 !!!")  # content, but nothing to detect from
+    assert detect_language(str(doc), [FakeLanguage("en", "English")]) is None
+
+
+def test_purge_db_reports_zero_when_the_db_is_unusable(tmp_path):
+    broken = tmp_path / "not-a-db"
+    broken.write_text("plain text, not sqlite")
+    assert TranslationCache.purge_db(str(broken)) == 0

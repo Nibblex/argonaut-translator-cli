@@ -10,12 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      # one version failing should not hide how the others fare
+      fail-fast: false
+      matrix:
+        # keep in sync with requires-python and the classifiers in
+        # pyproject.toml (the PyPI badge is generated from those)
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    name: test (python ${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install system Qt libraries
         run: sudo apt-get update && sudo apt-get install -y libgl1 libegl1 libxkbcommon0 libdbus-1-3
@@ -28,13 +36,15 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: pytest --cov-report=xml --cov-report=term
 
+      # the badge is built once, from the same version publish.yml releases with
       - name: Generate coverage badge
+        if: matrix.python-version == '3.13'
         run: |
           pip install "genbadge[coverage]"
           genbadge coverage -i coverage.xml -o coverage.svg
 
       - name: Publish coverage badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.python-version == '3.13'
         run: |
           cp coverage.svg /tmp/coverage.svg
           git config user.name "github-actions[bot]"
