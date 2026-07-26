@@ -17,6 +17,19 @@ DetectorFactory.seed = 0
 # langdetect codes that don't match the Argos ones
 LANGDETECT_TO_ARGOS = {"zh-cn": "zh", "zh-tw": "zt"}
 
+# What SentencePiece decodes the engine's unknown token into. NLLB used to
+# reach for it on typographic punctuation it would not reproduce — curly
+# quotes, apostrophes, dashes — leaving a "⁇" the reader sees as "??". The
+# engine is now told to refuse that token, but caches filled beforehand
+# still hold the damaged text, and serving it would keep the defect alive
+# for as long as the cache does.
+UNKNOWN_MARKER = "⁇"
+
+
+def is_usable(translation):
+    """False for a translation carrying the engine's unknown marker."""
+    return UNKNOWN_MARKER not in translation
+
 
 class CancelledError(Exception):
     pass
@@ -133,24 +146,31 @@ class TranslationCache:
 
     def lookup(self, key):
         """Returns (value, found). A found key counts as a hit, a missing
-        one as a miss, so the caller need only translate on a miss."""
-        if key in self._entries:
-            self.hits += 1
-            return self._entries[key], True
-        if self._conn is not None:
+        one as a miss, so the caller need only translate on a miss. An entry
+        holding the unknown marker is reported as missing: see
+        :data:`UNKNOWN_MARKER`."""
+        value = self._entries.get(key)
+        if value is None and self._conn is not None:
             key_hash = self._hash(key)
             row = self._conn.execute(
                 "SELECT translation FROM cache WHERE key_hash = ?", (key_hash,)
             ).fetchone()
             if row:
-                self._entries[key] = row[0]  # promote to L1
-                self._conn.execute(
-                    "UPDATE cache SET last_used = ? WHERE key_hash = ?",
-                    (int(time.time()), key_hash),
-                )
-                self._commit_soon()
-                self.hits += 1
-                return row[0], True
+                value = row[0]
+                if is_usable(value):
+                    self._entries[key] = value  # promote to L1
+                    self._conn.execute(
+                        "UPDATE cache SET last_used = ? WHERE key_hash = ?",
+                        (int(time.time()), key_hash),
+                    )
+                    self._commit_soon()
+        if value is not None and is_usable(value):
+            self.hits += 1
+            return value, True
+        if value is not None:
+            # translating it again overwrites the stored copy, so a cache
+            # filled before the fix repairs itself as it is used
+            self._entries.pop(key, None)
         self.misses += 1
         return None, False
 

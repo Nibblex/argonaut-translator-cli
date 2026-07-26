@@ -116,6 +116,7 @@ def test_engine_builds_nllb_token_layout(monkeypatch, tmp_path):
             captured["source"] = source
             captured["target_prefix"] = target_prefix
             captured["beam_size"] = kwargs.get("beam_size")
+            captured["disable_unk"] = kwargs.get("disable_unk")
             return [FakeResult([prefix[0], "▁hola"]) for prefix in target_prefix]
 
     class FakeProcessor:
@@ -142,6 +143,9 @@ def test_engine_builds_nllb_token_layout(monkeypatch, tmp_path):
 
     assert (captured["inter_threads"], captured["intra_threads"]) == (1, 3)
     assert captured["beam_size"] == nllb.NllbEngine.DEFAULT_BEAM
+    # without this the model answers typographic punctuation with its unknown
+    # token, which SentencePiece decodes into a "⁇" the reader sees as "??"
+    assert captured["disable_unk"] is True
     assert captured["source"] == [["eng_Latn", "hello", "world", "</s>"]]
     assert captured["target_prefix"] == [["spa_Latn"]]
     assert out == ["hola"]  # the language token is stripped before decoding

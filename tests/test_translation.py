@@ -282,3 +282,48 @@ def test_purge_db_reports_zero_when_the_db_is_unusable(tmp_path):
     broken = tmp_path / "not-a-db"
     broken.write_text("plain text, not sqlite")
     assert TranslationCache.purge_db(str(broken)) == 0
+
+
+def test_entries_holding_the_unknown_marker_are_retranslated(tmp_path):
+    """NLLB used to answer typographic punctuation with its unknown token,
+    which decodes to "⁇". Caches filled then still hold the damaged text,
+    and serving it would outlive the engine fix."""
+    from argonaut.translation import UNKNOWN_MARKER
+
+    db = str(tmp_path / "cache.db")
+    cache = TranslationCache(db)
+    cache.store("k", f"de {UNKNOWN_MARKER} riot {UNKNOWN_MARKER}")
+    cache.close()
+
+    reopened = TranslationCache(db)
+    assert reopened.lookup("k") == (None, False)  # reported as a miss
+    assert reopened.misses == 1 and reopened.hits == 0
+
+    reopened.store("k", 'de "riot"')  # the fresh translation replaces it
+    assert reopened.lookup("k") == ('de "riot"', True)
+    reopened.close()
+
+    healed = TranslationCache(db)
+    assert healed.lookup("k") == ('de "riot"', True)  # the repair persisted
+    healed.close()
+
+
+def test_a_poisoned_memory_entry_is_dropped(tmp_path):
+    """The same check applies to the in-memory level, which a batch fills
+    from the database on the first lookup."""
+    from argonaut.translation import UNKNOWN_MARKER
+
+    cache = TranslationCache()
+    cache.store("k", f"algo {UNKNOWN_MARKER} roto")
+    assert cache.lookup("k") == (None, False)
+    assert cache.lookup("k") == (None, False)  # dropped, not merely skipped
+    assert cache.hits == 0
+
+
+def test_a_translation_with_a_real_question_mark_is_kept():
+    """Only the double-question-mark marker disqualifies an entry; ordinary
+    punctuation must not send perfectly good translations back to the engine."""
+    cache = TranslationCache()
+    cache.store("k", "¿Qué pasó? Nadie lo sabe.")
+    assert cache.lookup("k") == ("¿Qué pasó? Nadie lo sabe.", True)
+    assert cache.hits == 1

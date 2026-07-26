@@ -160,6 +160,13 @@ class NllbEngine:
             beam_size=self.beam_size,
             max_batch_size=1024,
             batch_type="tokens",
+            # the model reaches for the unknown token on typographic
+            # punctuation it will not reproduce — curly quotes, apostrophes,
+            # dashes — and SentencePiece decodes it as "⁇", which lands in
+            # the translation looking like two question marks. Refusing the
+            # token makes it pick the next real one instead: "de “riot” y"
+            # comes back as "de Riot y" rather than "de ⁇ riot ⁇ y"
+            disable_unk=True,
         )
         translated = []
         for result in results:
