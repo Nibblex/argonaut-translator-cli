@@ -58,6 +58,20 @@ def test_shared_cache_reuses_translations_across_proxies():
     assert second.reused == 1 and first.reused == 0  # per-file breakdown
 
 
+def test_the_proxy_counts_the_segments_its_reuse_is_out_of():
+    """The reuse rate the summary reports needs a denominator, and chunks the
+    cache never sees (numbers, punctuation) are not misses."""
+    inner, progress, proxy = make_proxy()
+    proxy.translate_many(["hello", "42", "—"])
+    assert (proxy.segments, proxy.reused) == (1, 0)  # only "hello" is cacheable
+
+    # repeats within one call are deduplicated rather than counted as reuse,
+    # so the hit comes from what an earlier call stored
+    proxy.translate_many(["hello", "world"])
+    assert (proxy.segments, proxy.reused) == (3, 1)
+    assert inner.calls == 2
+
+
 def test_shared_cache_keeps_language_pairs_apart():
     # the same text detected in different source languages must not collide:
     # each pair keeps its own entry even in one shared cache

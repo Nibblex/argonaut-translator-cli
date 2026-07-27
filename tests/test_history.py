@@ -96,6 +96,62 @@ def test_a_ttl_of_zero_keeps_everything(tmp_path):
     kept.close()
 
 
+def test_the_cache_figures_of_a_translation_are_recorded(tmp_path):
+    history = make_history(tmp_path)
+    history.record(
+        "/docs/a.txt", "/out/a.txt", "en", "es", "argos", 1.0,
+        reused=30, segments=120,
+    )
+    entry, = history.entries()
+    history.close()
+    assert (entry.reused, entry.segments) == (30, 120)
+
+
+def test_a_translation_that_reported_no_figures_reads_as_zero(tmp_path):
+    history = make_history(tmp_path)
+    record_one(history)  # the worker's own call passes them, this one does not
+    entry, = history.entries()
+    history.close()
+    assert (entry.reused, entry.segments) == (0, 0)
+
+
+def test_a_history_from_an_older_version_gains_the_cache_columns(tmp_path):
+    """The table is created with IF NOT EXISTS, so an existing history keeps
+    the schema it was written with: the columns added since have to be added
+    to it, or every read would fail and the history would look lost."""
+    db = str(tmp_path / "history.db")
+    old = sqlite3.connect(db)
+    old.execute(
+        "CREATE TABLE history ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, translated_at INTEGER NOT NULL, "
+        "source_path TEXT NOT NULL, output_path TEXT NOT NULL, "
+        "from_code TEXT NOT NULL, to_code TEXT NOT NULL, engine TEXT NOT NULL, "
+        "seconds REAL NOT NULL)"
+    )
+    old.execute(
+        "INSERT INTO history (translated_at, source_path, output_path, "
+        "from_code, to_code, engine, seconds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (int(time.time()) - 60, "/docs/old.txt", "/out/old.txt",
+         "en", "es", "argos", 2.0),
+    )
+    old.commit()
+    old.close()
+
+    history = TranslationHistory(db, ttl_days=0)
+    history.record(
+        "/docs/new.txt", "/out/new.txt", "en", "es", "nllb", 1.0,
+        reused=5, segments=10,
+    )
+    entries = history.entries()
+    history.close()
+
+    assert [os.path.basename(e.source_path) for e in entries] == [
+        "new.txt", "old.txt"  # the old row is still there, and still readable
+    ]
+    assert (entries[0].reused, entries[0].segments) == (5, 10)
+    assert (entries[1].reused, entries[1].segments) == (0, 0)  # unknown
+
+
 def test_without_a_path_nothing_is_recorded(tmp_path):
     """What the disabled setting does: the worker still calls record()."""
     history = TranslationHistory()

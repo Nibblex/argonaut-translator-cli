@@ -13,10 +13,15 @@ import sqlite3
 import time
 from collections import namedtuple
 
-# one finished translation, as the dialog shows it
+# one finished translation, as the dialog shows it. ``reused`` and
+# ``segments`` are the file's share of the cache: how many of the segments
+# the cache was asked about it answered. Both read 0 for a row written
+# before they were recorded, which the dialog shows as unknown rather than
+# as a run that reused nothing
 Entry = namedtuple(
     "Entry",
-    "translated_at source_path output_path from_code to_code engine seconds",
+    "translated_at source_path output_path from_code to_code engine seconds "
+    "reused segments",
 )
 
 
@@ -54,8 +59,11 @@ class TranslationHistory:
                 "from_code TEXT NOT NULL, "
                 "to_code TEXT NOT NULL, "
                 "engine TEXT NOT NULL, "
-                "seconds REAL NOT NULL)"
+                "seconds REAL NOT NULL, "
+                "reused INTEGER NOT NULL DEFAULT 0, "
+                "segments INTEGER NOT NULL DEFAULT 0)"
             )
+            self._add_missing_columns()
             # the dialog always reads in date order
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS history_by_date "
@@ -70,6 +78,24 @@ class TranslationHistory:
         except Exception:  # noqa: BLE001
             self._conn = None  # an unusable database disables recording
 
+    # columns the table grew after it first shipped, so a history written by
+    # an older version is read (and written) rather than discarded
+    LATER_COLUMNS = (
+        ("reused", "INTEGER NOT NULL DEFAULT 0"),
+        ("segments", "INTEGER NOT NULL DEFAULT 0"),
+    )
+
+    def _add_missing_columns(self):
+        """Brings an existing table up to the current schema. CREATE TABLE IF
+        NOT EXISTS leaves an older one exactly as it was, so the columns added
+        since have to be asked for by name."""
+        present = {row[1] for row in self._conn.execute("PRAGMA table_info(history)")}
+        for name, declaration in self.LATER_COLUMNS:
+            if name not in present:
+                self._conn.execute(
+                    f"ALTER TABLE history ADD COLUMN {name} {declaration}"
+                )
+
     @property
     def enabled(self):
         """False when nothing is being recorded, either because history is
@@ -77,7 +103,7 @@ class TranslationHistory:
         return self._conn is not None
 
     def record(self, source_path, output_path, from_code, to_code,
-               engine, seconds, when=None):
+               engine, seconds, reused=0, segments=0, when=None):
         """Logs one finished translation. Never raises: a history that
         cannot be written must not fail the batch that produced it."""
         if self._conn is None:
@@ -85,11 +111,12 @@ class TranslationHistory:
         try:
             self._conn.execute(
                 "INSERT INTO history (translated_at, source_path, output_path, "
-                "from_code, to_code, engine, seconds) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "from_code, to_code, engine, seconds, reused, segments) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     int(time.time() if when is None else when),
                     source_path, output_path, from_code, to_code,
-                    engine, float(seconds),
+                    engine, float(seconds), int(reused), int(segments),
                 ),
             )
             self._conn.commit()
@@ -102,8 +129,8 @@ class TranslationHistory:
             return []
         query = (
             "SELECT translated_at, source_path, output_path, from_code, "
-            "to_code, engine, seconds FROM history ORDER BY translated_at DESC, "
-            "id DESC"
+            "to_code, engine, seconds, reused, segments FROM history "
+            "ORDER BY translated_at DESC, id DESC"
         )
         params = ()
         if limit is not None:

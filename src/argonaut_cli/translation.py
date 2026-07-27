@@ -259,6 +259,10 @@ class ProgressTranslation:
         self._prefix = self._language_pair(engine_id, engine_version)
         self._done = 0
         self.reused = 0  # segments this file served from the cache
+        # segments the cache was asked about: the denominator of the reuse
+        # rate, so the chunks that never reach it (numbers, punctuation) are
+        # not counted as misses
+        self.segments = 0
 
     def _language_pair(self, engine_id="", engine_version=""):
         def code(lang):
@@ -288,6 +292,7 @@ class ProgressTranslation:
             if not any(c.isalpha() for c in text):
                 results[i] = text
                 continue
+            self.segments += 1
             result, found = self._cache.lookup((self._prefix, text))
             if found:
                 results[i] = result
