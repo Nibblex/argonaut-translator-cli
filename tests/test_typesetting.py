@@ -3,7 +3,7 @@
 import pymupdf as fitz
 import pytest
 
-from argonaut.typesetting import Typesetter, is_rtl, split_tokens
+from argonaut.typesetting import Typesetter, is_rtl, split_tokens, starts_rtl
 
 
 def block(text, size=11, color="#000000"):
@@ -123,6 +123,32 @@ def test_every_script_is_written_with_a_font_that_has_it(page, muestra):
     dropped, text = write(page, muestra, fitz.Rect(20, 20, 380, 80), size=14)
     assert dropped == 0
     assert text.replace(" ", "") == muestra.replace(" ", "")
+
+
+def test_the_paragraph_direction_is_set_by_its_first_letter():
+    """Digits and punctuation belong to whatever surrounds them, so a
+    sentence opening with a number still reads in its own direction."""
+    assert starts_rtl("الثعلب البني")
+    assert starts_rtl("2020 كان عاما")
+    assert not starts_rtl("El informe السريع")
+    assert not starts_rtl("2020 was a year")
+    assert not starts_rtl("2020 — 15%")  # no letter to ask: left to right
+
+
+def test_latin_inside_an_arabic_paragraph_keeps_its_order(page):
+    """A run written right to left is turned round; a name or a number
+    inside it is not. Turning the whole line round instead spelled the name
+    backwards and moved the year away from the word it belongs to."""
+    _, text = write(page, "دراسة Hellwig حول الأزمة 2020", fitz.Rect(20, 20, 380, 80), size=14)
+    assert "Hellwig" in text
+    assert "2020" in text and "0202" not in text
+
+
+def test_an_arabic_phrase_does_not_turn_its_paragraph_round(page):
+    """The other way about: a Latin paragraph quoting Arabic stays Latin."""
+    _, text = write(page, "El informe السريع de 2020 concluye", fitz.Rect(20, 20, 380, 80), size=14)
+    assert text.startswith("El informe")
+    assert text.endswith("de 2020 concluye")
 
 
 def test_arabic_is_written_right_to_left(page):

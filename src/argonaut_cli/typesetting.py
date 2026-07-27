@@ -52,6 +52,18 @@ def is_rtl(text):
     return any(_in_ranges(ord(char), RTL_RANGES) for char in text)
 
 
+def starts_rtl(text):
+    """Whether the paragraph runs right to left, decided by its first
+    letter — digits and punctuation belong to whatever surrounds them, so
+    they do not get a say."""
+    for char in text:
+        if _in_ranges(ord(char), RTL_RANGES):
+            return True
+        if char.isalpha():
+            return False
+    return False
+
+
 def is_cjk(char):
     return _in_ranges(ord(char), CJK_RANGES)
 
@@ -212,7 +224,7 @@ class Typesetter:
                 hex_to_rgb(block[4]), fitz.TextWriter(page.rect)
             )
             baseline = rect.y0 + size
-            rtl = is_rtl(text)  # a property of the paragraph, not of its lines
+            rtl = starts_rtl(text)  # of the paragraph, not of each line
             for line in lines:
                 self._write_line(writer, line, rtl, rect, baseline, size, bold)
                 baseline += size * LEADING
@@ -222,23 +234,31 @@ class Typesetter:
         return dropped
 
     def _write_line(self, writer, line, rtl, rect, baseline, size, bold):
-        if rtl:
-            # the whole line in one go: split up, the letters would neither
-            # join nor be reordered, and the line would come out backwards
-            phrase = " ".join(token for token, _ in line)
-            font = self.font_for(phrase, bold)
-            width = font.text_length(phrase, fontsize=size)
-            writer.append(
-                (max(rect.x0, rect.x1 - width), baseline), phrase,
-                font=font, fontsize=size, right_to_left=1,
-            )
-            return
+        """Places the line's runs, each written in its own direction.
+
+        A run of Arabic goes to MuPDF whole, which joins its letters up and
+        turns it round; a run of Latin or of digits sitting inside it keeps
+        the order it was written in. What the line reads as a whole decides
+        where the runs land: in an Arabic paragraph the first one sits at
+        the right margin and the rest follow leftwards.
+
+        Turning the whole line round instead — which is what this did at
+        first — spelled Latin names backwards and moved "2020" away from
+        the word it belongs to, and Arabic prose is full of both."""
         runs = self._runs(line, bold)
-        x = rect.x0
-        for index, (text, font) in enumerate(runs):
-            writer.append((x, baseline), text, font=font, fontsize=size)
-            if index + 1 < len(runs):  # the last run's width is never needed
-                x += font.text_length(text, fontsize=size)
+        widths = [font.text_length(text, fontsize=size) for text, font in runs]
+        placed = list(zip(runs, widths))
+        if rtl:
+            placed.reverse()  # the line's first run belongs on the right
+            x = max(rect.x0, rect.x1 - sum(widths))
+        else:
+            x = rect.x0
+        for (text, font), width in placed:
+            writer.append(
+                (x, baseline), text, font=font, fontsize=size,
+                right_to_left=int(is_rtl(text)),
+            )
+            x += width
 
     def _runs(self, line, bold):
         """The line grouped into the longest strings sharing a font, spaces
@@ -258,4 +278,13 @@ class Typesetter:
             run += (" " if spaced else "") + token
         if run:
             runs.append((run, run_font))
+        # a space opening a right-to-left run is turned round with it and
+        # lands on the far side, closing the gap it was there to keep, so it
+        # stays with the run before instead
+        for index in range(1, len(runs)):
+            text, font = runs[index]
+            if text.startswith(" ") and is_rtl(text):
+                runs[index] = (text[1:], font)
+                before, before_font = runs[index - 1]
+                runs[index - 1] = (before + " ", before_font)
         return runs
