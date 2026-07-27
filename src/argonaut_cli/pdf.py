@@ -1,10 +1,12 @@
 """PDF translation: fixed version of the argos-translate-files
-PdfTranslator (whole paragraphs, progress and cancellation)."""
+PdfTranslator (whole paragraphs, progress, cancellation and its own
+typesetting)."""
 
 import pymupdf as fitz
 from argostranslatefiles.formats.pdf import PdfTranslator
 
 from argonaut.translation import check_cancelled
+from argonaut.typesetting import Typesetter
 
 
 def is_horizontal(line):
@@ -15,8 +17,9 @@ class FastPdfTranslator(PdfTranslator):
     """Fixed version of the library's PdfTranslator: applies redactions
     once per page instead of once per chunk (the base class reprocesses
     the whole page for every chunk, which freezes the application on
-    reaching 100%), reports rebuild progress and honours cancellation in
-    every phase."""
+    reaching 100%), reports rebuild progress, honours cancellation in
+    every phase, and typesets the translation itself instead of handing
+    each paragraph to insert_htmlbox (see argonaut.typesetting)."""
 
     def __init__(
         self,
@@ -37,6 +40,10 @@ class FastPdfTranslator(PdfTranslator):
         self._on_page = on_page or (lambda done, total: None)
         self._on_save = on_save or (lambda: None)
         self._is_cancelled = is_cancelled or (lambda: False)
+        self.typesetter = Typesetter()
+        # paragraphs no size would fit into their box; kept so a caller can
+        # tell a rebuild that silently lost text from one that did not
+        self.dropped = 0
 
     def translate_pdf(self):
         phases = (
@@ -198,24 +205,30 @@ class FastPdfTranslator(PdfTranslator):
             for coords in self._cancellable(rects):
                 page.draw_rect(fitz.Rect(*coords), color=(1, 1, 1), fill=(1, 1, 1))
 
-        # one entry at a time, so cancellation can interrupt a long page
+        # a page at a time: the typesetter shares one writer per colour across
+        # everything it is given, and writing a page now costs milliseconds,
+        # so there is nothing left to interrupt inside one
         for is_bold, entries in by_weight.items():
-            for entry in self._cancellable(entries):
-                self._insert_styled_text_blocks(page, [entry], is_bold=is_bold)
+            self._abort_if_cancelled()
+            self.dropped += self.typesetter.write(page, entries, bold=is_bold)
 
     def _save_translated_pdf(self):
         """Writes the rebuilt document.
 
-        ``insert_htmlbox`` embeds a copy of its font on every call, so a
-        book ends up holding one near-identical copy per paragraph — a few
-        thousand of them. Subsetting collapses those first, which makes
-        both the deduplication below and the file itself smaller.
+        This used to be the slow part: insert_htmlbox embedded a copy of its
+        font on every call, and ``garbage=4`` finds duplicates by comparing
+        objects against each other, so a 528-page book spent 223 s here
+        collapsing a dozen objects per paragraph. Typesetting the text
+        ourselves left one font for the whole document — three descriptors
+        in a 79-page book — and the same save now takes under a second.
 
-        ``garbage=4`` stays: it is what removes the duplicate font objects,
-        and a lower level saves faster but grows the same 170 KB file past
-        100 MB. The base class copies the document into a fresh one before
-        saving, which costs the same and drops the original's metadata and
-        outline, so the working document is saved directly instead."""
+        Both settings stay because they still pay for themselves at no
+        cost: subsetting trims the embedded faces to the glyphs actually
+        used, and garbage=4 is no slower than the lower levels now that it
+        has little to collapse. The base class copies the document into a
+        fresh one before saving, which costs the same and drops the
+        original's metadata and outline, so the working document is saved
+        directly instead."""
         try:
             self.doc.subset_fonts()
         except Exception:  # noqa: BLE001
