@@ -17,3 +17,6 @@ htmlcov/
 .flatpak-builder/
 build-dir/
 .flatpak-builder-lint.json
+
+# local-only agent instructions; CONTRIBUTING.md is the tracked counterpart
+AGENTS.md
