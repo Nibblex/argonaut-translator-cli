@@ -11,10 +11,10 @@ import time
 
 from argostranslatefiles import argostranslatefiles
 
-from argonaut import nllb, packages
-from argonaut.history import TranslationHistory
-from argonaut.pdf import FastPdfTranslator
-from argonaut.translation import (
+from argonaut_cli import nllb, packages
+from argonaut_cli.history import TranslationHistory
+from argonaut_cli.pdf import FastPdfTranslator
+from argonaut_cli.translation import (
     SUPPORTED_EXTS,
     CancelledError,
     ProgressTranslation,

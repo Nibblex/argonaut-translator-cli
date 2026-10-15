@@ -4,7 +4,7 @@ and partial-file cleanup."""
 
 import os
 
-from argonaut.translation import CancelledError
+from argonaut_cli.translation import CancelledError
 
 CHUNK_SIZE = 1024 * 256
 

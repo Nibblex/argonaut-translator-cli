@@ -3,8 +3,8 @@ skips and records, and what it reports to its listener."""
 
 import pytest
 
-from argonaut import nllb, packages
-from argonaut.batch import (
+from argonaut_cli import nllb, packages
+from argonaut_cli.batch import (
     AlreadyInLanguage,
     Batch,
     LanguageNotDetected,
@@ -12,8 +12,8 @@ from argonaut.batch import (
     NoModel,
     documents_in,
 )
-from argonaut.history import TranslationHistory
-from argonaut.translation import CancelledError, TranslationCache
+from argonaut_cli.history import TranslationHistory
+from argonaut_cli.translation import CancelledError, TranslationCache
 from tests.conftest import FakeBatchTranslation, FakeLanguage, FakeTranslation
 from tests.test_pdf import make_pdf
 from tests.test_translation import ENGLISH_TEXT

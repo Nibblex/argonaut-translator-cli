@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from argonaut.translation import (
+from argonaut_cli.translation import (
     LANGDETECT_TO_ARGOS,
     SUPPORTED_EXTS,
     CancelledError,
@@ -302,7 +302,7 @@ def test_entries_holding_the_unknown_marker_are_retranslated(tmp_path):
     """NLLB used to answer typographic punctuation with its unknown token,
     which decodes to "⁇". Caches filled then still hold the damaged text,
     and serving it would outlive the engine fix."""
-    from argonaut.translation import UNKNOWN_MARKER
+    from argonaut_cli.translation import UNKNOWN_MARKER
 
     db = str(tmp_path / "cache.db")
     cache = TranslationCache(db)
@@ -325,7 +325,7 @@ def test_entries_holding_the_unknown_marker_are_retranslated(tmp_path):
 def test_a_poisoned_memory_entry_is_dropped(tmp_path):
     """The same check applies to the in-memory level, which a batch fills
     from the database on the first lookup."""
-    from argonaut.translation import UNKNOWN_MARKER
+    from argonaut_cli.translation import UNKNOWN_MARKER
 
     cache = TranslationCache()
     cache.store("k", f"algo {UNKNOWN_MARKER} roto")

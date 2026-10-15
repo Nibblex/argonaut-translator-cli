@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "argonaut-translator"
+name = "argonaut-translator-cli"
 dynamic = ["version"]
-description = "Minimalist offline document translator (PyQt5 + Argos Translate)"
+description = "Offline document translator for the command line (Argos Translate and NLLB-200)"
 readme = "README.md"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
@@ -14,10 +14,10 @@ authors = [
 ]
 # current pymupdf wheels need 3.10; CI tests every version listed below
 requires-python = ">=3.10"
-keywords = ["translation", "documents", "offline", "argos-translate", "pdf"]
+keywords = ["translation", "documents", "offline", "argos-translate", "nllb", "pdf", "cli"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Environment :: X11 Applications :: Qt",
+    "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
@@ -29,43 +29,36 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
 ]
 dependencies = [
-    "PyQt5",
     "argos-translate-lt",
     "argos-translate-files>=1.4.4",
     "langdetect",
-    "psutil",
     "pymupdf",
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "pytest-qt"]
+test = ["pytest", "pytest-cov"]
 
 [project.urls]
-Homepage = "https://github.com/Nibblex/Argonaut"
-Issues = "https://github.com/Nibblex/Argonaut/issues"
+Homepage = "https://github.com/Nibblex/argonaut-translator-cli"
+Issues = "https://github.com/Nibblex/argonaut-translator-cli/issues"
 
 [project.scripts]
-argonaut = "argonaut.main:main"
+argonaut-cli = "argonaut_cli.cli:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "argonaut.__version__" }
+version = { attr = "argonaut_cli.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# the interface strings and the language names are data files read at
-# runtime, so the wheel has to carry them next to the modules
-[tool.setuptools.package-data]
-argonaut = ["locales/*.json"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=argonaut --cov-report=term-missing"
+addopts = "--cov=argonaut_cli --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["argonaut"]
-# pure app bootstrap: running it starts the Qt event loop
-omit = ["*/argonaut/__main__.py"]
+source = ["argonaut_cli"]
+# two lines that hand over to cli.main, which the suite calls directly
+omit = ["*/argonaut_cli/__main__.py"]
 
 [tool.coverage.report]
 exclude_also = ["if __name__ == .__main__.:"]

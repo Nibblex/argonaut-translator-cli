@@ -8,7 +8,7 @@ import urllib.request
 from argostranslate import package as argos_package
 from argostranslate import settings as argos_settings
 
-from argonaut.download import download_to
+from argonaut_cli.download import download_to
 
 # argos-net.com answers 403 Forbidden to urllib's default agent
 USER_AGENT = "ArgosTranslate"

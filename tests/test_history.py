@@ -2,7 +2,7 @@ import os
 import sqlite3
 import time
 
-from argonaut.history import TranslationHistory
+from argonaut_cli.history import TranslationHistory
 
 
 def make_history(tmp_path, ttl_days=0):

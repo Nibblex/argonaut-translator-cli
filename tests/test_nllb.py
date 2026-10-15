@@ -4,8 +4,8 @@ import types
 
 import pytest
 
-from argonaut import nllb
-from argonaut.translation import CancelledError
+from argonaut_cli import nllb
+from argonaut_cli.translation import CancelledError
 
 
 # --- language table ---

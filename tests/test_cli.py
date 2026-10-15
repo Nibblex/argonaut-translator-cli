@@ -7,9 +7,9 @@ import types
 import argostranslate.settings
 import pytest
 
-from argonaut import cli, nllb, packages
-from argonaut.history import TranslationHistory
-from argonaut.translation import CancelledError, TranslationCache
+from argonaut_cli import cli, nllb, packages
+from argonaut_cli.history import TranslationHistory
+from argonaut_cli.translation import CancelledError, TranslationCache
 from tests.conftest import FakeLanguage, FakeTranslation
 from tests.test_translation import ENGLISH_TEXT
 
@@ -473,7 +473,7 @@ def test_cache_info_reports_its_size(langs, tmp_path):
 # --- odds and ends ---
 
 def test_version(capsys):
-    from argonaut import __version__
+    from argonaut_cli import __version__
 
     with pytest.raises(SystemExit) as caught:
         cli.main(["--version"])

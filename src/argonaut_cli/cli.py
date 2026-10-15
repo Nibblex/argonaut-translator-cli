@@ -2,10 +2,10 @@
 need — language packages, the NLLB model, the cache and the history.
 
 It shares the engine, the cache, the history and the models with the
-window, so a document translated from one is answered from the cache in
-the other. It never prunes either database on its own: how long entries
-are kept is a setting of the window, and clearing them here is always an
-explicit command."""
+desktop application (argonaut-translator-gui), so a document translated
+from one is answered from the cache in the other. It never prunes either
+database on its own: how long entries are kept is a setting of the desktop
+application, and clearing them here is always an explicit command."""
 
 import argparse
 import os
@@ -16,10 +16,10 @@ import time
 import argostranslate.settings
 import argostranslate.translate
 
-from argonaut import __version__, nllb, packages
-from argonaut.batch import Batch, Listener, documents_in
-from argonaut.history import TranslationHistory
-from argonaut.translation import SUPPORTED_EXTS, CancelledError, TranslationCache
+from argonaut_cli import __version__, nllb, packages
+from argonaut_cli.batch import Batch, Listener, documents_in
+from argonaut_cli.history import TranslationHistory
+from argonaut_cli.translation import SUPPORTED_EXTS, CancelledError, TranslationCache
 
 PROG = "argonaut-cli"
 ENGINES = ("argos", "nllb")
@@ -54,7 +54,8 @@ def format_duration(seconds):
 
 
 def default_threads():
-    # every core, as the window does: translation is what the user waits for
+    # every core, as the desktop application does: translation is what the
+    # user waits for
     return os.cpu_count() or 1
 
 
@@ -95,8 +96,8 @@ def pivot_language(translation):
 
 class Interrupt:
     """SIGINT handling for a long run: the first Ctrl+C asks the batch to
-    stop at its next safe point, the way the window's Cancel button does;
-    a second one aborts at once."""
+    stop at its next safe point, the way the desktop application's Cancel
+    button does; a second one aborts at once."""
 
     def __init__(self, stream):
         self.requested = False
@@ -605,7 +606,7 @@ def build_parser():
     history_clear.set_defaults(func=cmd_history_clear)
 
     cache = commands.add_parser(
-        "cache", help="the translation cache shared with the window"
+        "cache", help="the translation cache shared with the desktop application"
     ).add_subparsers(dest="action", required=True, metavar="ACTION")
     cache.add_parser("info", help="its size").set_defaults(func=cmd_cache_info)
     cache_clear = cache.add_parser("clear", help="delete every cached segment")

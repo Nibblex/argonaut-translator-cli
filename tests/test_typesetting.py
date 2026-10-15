@@ -3,7 +3,7 @@
 import pymupdf as fitz
 import pytest
 
-from argonaut.typesetting import Typesetter, is_rtl, split_tokens, starts_rtl
+from argonaut_cli.typesetting import Typesetter, is_rtl, split_tokens, starts_rtl
 
 
 def block(text, size=11, color="#000000"):

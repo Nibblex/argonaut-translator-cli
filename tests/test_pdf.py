@@ -3,8 +3,8 @@ import types
 import pymupdf as fitz
 import pytest
 
-from argonaut.pdf import FastPdfTranslator, is_horizontal
-from argonaut.translation import CancelledError
+from argonaut_cli.pdf import FastPdfTranslator, is_horizontal
+from argonaut_cli.translation import CancelledError
 from tests.conftest import FakeBatchTranslation, FakeTranslation
 
 

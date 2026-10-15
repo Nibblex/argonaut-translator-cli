@@ -13,7 +13,7 @@ import re
 import shutil
 import urllib.request
 
-from argonaut.download import download_to
+from argonaut_cli.download import download_to
 
 MODEL_REPO = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
 MODEL_BASE_URL = f"https://huggingface.co/{MODEL_REPO}/resolve/main"

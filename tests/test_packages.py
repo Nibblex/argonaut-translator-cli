@@ -2,8 +2,8 @@ import types
 
 import pytest
 
-from argonaut import packages
-from argonaut.translation import CancelledError
+from argonaut_cli import packages
+from argonaut_cli.translation import CancelledError
 
 
 def fake_pkg(tmp_path=None, from_code="en", to_code="es", from_name="English",

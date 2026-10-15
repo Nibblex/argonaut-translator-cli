@@ -5,8 +5,8 @@ typesetting)."""
 import pymupdf as fitz
 from argostranslatefiles.formats.pdf import PdfTranslator
 
-from argonaut.translation import check_cancelled
-from argonaut.typesetting import Typesetter
+from argonaut_cli.translation import check_cancelled
+from argonaut_cli.typesetting import Typesetter
 
 
 def is_horizontal(line):
@@ -19,7 +19,7 @@ class FastPdfTranslator(PdfTranslator):
     the whole page for every chunk, which freezes the application on
     reaching 100%), reports rebuild progress, honours cancellation in
     every phase, and typesets the translation itself instead of handing
-    each paragraph to insert_htmlbox (see argonaut.typesetting)."""
+    each paragraph to insert_htmlbox (see argonaut_cli.typesetting)."""
 
     def __init__(
         self,
