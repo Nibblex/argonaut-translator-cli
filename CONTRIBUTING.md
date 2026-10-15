@@ -62,7 +62,7 @@ All modules live in the `src/argonaut_cli/` package:
 
 ## The desktop application builds on this package
 
-[Argonaut](https://github.com/Nibblex/Argonaut) (`argonaut-translator-gui`)
+[Argonaut](https://github.com/Nibblex/argonaut-translator-gui) (`argonaut-translator-gui`)
 imports `batch`, `translation`, `history`, `nllb`, `packages` and `pdf`, and
 requires `argonaut-translator-cli>=2,<3`. So:
 
