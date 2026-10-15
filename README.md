@@ -10,7 +10,7 @@ anywhere. Translation runs entirely on your own machine, with Argos
 Translate or the heavier and more accurate NLLB-200, so it works with no
 connection and your documents never leave the computer.
 
-It is the engine of [Argonaut](https://github.com/Nibblex/Argonaut), the
+It is the engine of [Argonaut](https://github.com/Nibblex/argonaut-translator-gui), the
 desktop application, on its own: install it alone for the terminal and for
 scripts, or install the desktop application, which brings it along. The two
 share the language packages, the NLLB model, the translation cache and the
