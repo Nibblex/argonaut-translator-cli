@@ -9,7 +9,6 @@ from argostranslate import package as argos_package
 from argostranslate import settings as argos_settings
 
 from argonaut.download import download_to
-from argonaut.i18n import language_name, name_sort_key
 
 # argos-net.com answers 403 Forbidden to urllib's default agent
 USER_AGENT = "ArgosTranslate"
@@ -21,12 +20,8 @@ def pair(pkg):
 
 
 def pair_text(pkg):
-    """The package's language pair as the user reads it, in the interface
-    language."""
-    return (
-        f"{language_name(pkg.from_code, pkg.from_name)}"
-        f" → {language_name(pkg.to_code, pkg.to_name)}"
-    )
+    """The package's language pair, by the English names Argos gives them."""
+    return f"{pkg.from_name} → {pkg.to_name}"
 
 
 def installed_versions():
@@ -51,9 +46,8 @@ def is_newer(candidate, current):
 
 def get_available():
     """Downloads the remote package index and returns the translation
-    packages sorted by language pair, as the pair reads in the interface
-    language. Raises if the index has never been fetched and cannot be
-    downloaded now."""
+    packages sorted by language pair, by their English names. Raises if the
+    index has never been fetched and cannot be downloaded now."""
     argos_package.update_package_index()
     # update_package_index swallows network errors; without a local copy
     # get_available_packages would retry it in an endless loop
@@ -64,12 +58,7 @@ def get_available():
         for pkg in argos_package.get_available_packages()
         if pkg.type == "translate" and pkg.from_code and pkg.to_code
     ]
-    packages.sort(
-        key=lambda p: (
-            name_sort_key(language_name(p.from_code, p.from_name)),
-            name_sort_key(language_name(p.to_code, p.to_name)),
-        )
-    )
+    packages.sort(key=lambda p: (p.from_name.casefold(), p.to_name.casefold()))
     return packages
 
 

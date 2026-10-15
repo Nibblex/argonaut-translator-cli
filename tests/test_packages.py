@@ -3,7 +3,6 @@ import types
 import pytest
 
 from argonaut import packages
-from argonaut.i18n import set_language
 from argonaut.translation import CancelledError
 
 
@@ -209,28 +208,11 @@ def test_get_available_filters_and_sorts(tmp_path, monkeypatch):
     ]
 
 
-def test_get_available_sorts_by_the_translated_names(tmp_path, monkeypatch):
-    """The order has to follow the names the dialog will show, or a
-    translated list reads as if it were shuffled."""
-    index = tmp_path / "index.json"
-    index.write_text("[]")
-    monkeypatch.setattr(packages.argos_package, "update_package_index", lambda: None)
-    monkeypatch.setattr(packages.argos_settings, "local_package_index", index)
-    monkeypatch.setattr(
-        packages.argos_package,
-        "get_available_packages",
-        lambda: [
-            fake_pkg(from_code="en", to_code="fr", to_name="French"),
-            fake_pkg(from_code="es", to_code="en", from_name="Spanish", to_name="English"),
-            fake_pkg(from_code="en", to_code="es"),
-        ],
-    )
-    set_language("es")
-    assert [packages.pair_text(p) for p in packages.get_available()] == [
-        "Español → Inglés",
-        "Inglés → Español",
-        "Inglés → Francés",
-    ]
+def test_pair_text_uses_the_english_names():
+    """The engine names pairs in English; the window renders them in the
+    interface language itself."""
+    pkg = fake_pkg(from_code="es", to_code="en", from_name="Spanish", to_name="English")
+    assert packages.pair_text(pkg) == "Spanish → English"
 
 
 def test_get_available_raises_without_index(tmp_path, monkeypatch):
