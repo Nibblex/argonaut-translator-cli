@@ -13,10 +13,5 @@ coverage.xml
 coverage.svg
 htmlcov/
 
-# flatpak-builder
-.flatpak-builder/
-build-dir/
-.flatpak-builder-lint.json
-
 # local-only agent instructions; CONTRIBUTING.md is the tracked counterpart
 AGENTS.md
